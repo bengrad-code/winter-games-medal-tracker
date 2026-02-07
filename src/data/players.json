@@ -1,0 +1,24 @@
+{
+  "players": [
+    {
+      "name": "Ben",
+      "teamName": "Blades of Steel",
+      "countries": ["Norway", "Austria", "Italy", "Slovenia"]
+    },
+    {
+      "name": "Sadie & Gemma",
+      "teamName": "SEMMA",
+      "countries": ["USA", "France", "Great Britain", "Finland"]
+    },
+    {
+      "name": "Spencer",
+      "teamName": "TEAM",
+      "countries": ["China", "Japan", "Switzerland", "Netherlands"]
+    },
+    {
+      "name": "Trish",
+      "teamName": "Pringles",
+      "countries": ["Germany", "Canada", "Sweden", "AIN"]
+    }
+  ]
+}
