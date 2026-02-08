@@ -8,6 +8,9 @@ const COUNTRY_MAPPING = {
   'Great Britain': 'Great Britain',
   'GBR': 'Great Britain',
   'GB': 'Great Britain',
+  'United Kingdom': 'Great Britain',
+  'UK': 'Great Britain',
+  'Britain': 'Great Britain',
   'Individual Neutral Athletes': 'AIN',
   'Individual  Neutral Athletes': 'AIN', // Handle double space
   'Individual Neutral AthletesAINAIN': 'AIN', // Handle concatenated format
@@ -34,6 +37,8 @@ const COUNTRY_MAPPING = {
   'SUI': 'Switzerland',
   'Netherlands': 'Netherlands',
   'NED': 'Netherlands',
+  'Holland': 'Netherlands',
+  'NLD': 'Netherlands',
   'Germany': 'Germany',
   'GER': 'Germany',
   'Canada': 'Canada',
@@ -79,14 +84,33 @@ function extractCountryName(countryText) {
     }
   }
   
-  // Check if it's a concatenated format like "ItalyITAITA" or "United StatesUSAUSA"
+  // Check if it's a concatenated format like "ItalyITAITA" or "United StatesUSAUSA" or "NorwayNORNOR"
   // Try to find a known country name at the beginning (longest match first)
   const sortedKeys = Object.keys(COUNTRY_MAPPING).sort((a, b) => b.length - a.length);
   for (const key of sortedKeys) {
     // Normalize the key for comparison (handle spaces)
     const normalizedKey = key.replace(/\s+/g, ' ').trim();
+    // Check if it starts with the country name
     if (normalized.startsWith(normalizedKey)) {
       return COUNTRY_MAPPING[key]; // Return the mapped value
+    }
+    // Also check if the country name appears anywhere and is followed by its code
+    // This handles cases like "NorwayNORNOR" where the name might be followed immediately by code
+    const keyLower = key.toLowerCase();
+    const keyIndex = lowerNormalized.indexOf(keyLower);
+    if (keyIndex === 0) { // Country name at the start
+      // Check if there's a country code right after (like "NorwayNOR")
+      const afterKey = normalized.substring(key.length).trim();
+      const countryCode = Object.keys(COUNTRY_MAPPING).find(k => 
+        COUNTRY_MAPPING[k] === COUNTRY_MAPPING[key] && k.length === 3 && k === k.toUpperCase()
+      );
+      if (countryCode && afterKey.toUpperCase().startsWith(countryCode)) {
+        return COUNTRY_MAPPING[key];
+      }
+      // If the country name is at the start and the rest looks like codes/numbers, use it
+      if (afterKey.length > 0 && (afterKey.match(/^[A-Z]{3}/) || afterKey.match(/^\d/))) {
+        return COUNTRY_MAPPING[key];
+      }
     }
   }
   
@@ -98,7 +122,7 @@ function extractCountryName(countryText) {
     }
   }
   
-  // If it contains a known country code pattern at the end (like "ITAITA" or "USAUSA")
+  // If it contains a known country code pattern at the end (like "ITAITA" or "USAUSA" or "NORNOR")
   // Try to extract the name part before the repeated code
   // Pattern: "CountryNameCODECODE" - extract "CountryName"
   const codePattern = /([A-Z]{3})\1?$/; // Match 3-letter code, optionally repeated
@@ -115,6 +139,40 @@ function extractCountryName(countryText) {
       // Try case-insensitive
       for (const [key, value] of Object.entries(COUNTRY_MAPPING)) {
         if (key.toLowerCase() === potentialName.toLowerCase()) {
+          return value;
+        }
+      }
+    }
+  }
+  
+  // Also check if the normalized string contains a country code anywhere (not just at the end)
+  // This handles cases like "NorwayNORNOR" or "SloveniaSLOSVN" where the code might be in the middle
+  for (const [key, value] of Object.entries(COUNTRY_MAPPING)) {
+    // Check if the key appears in the normalized string (case-insensitive)
+    const keyLower = key.toLowerCase();
+    if (lowerNormalized.includes(keyLower)) {
+      // Find all country codes that map to this country
+      const countryCodes = Object.keys(COUNTRY_MAPPING).filter(k => 
+        COUNTRY_MAPPING[k] === value && k.length === 3 && k === k.toUpperCase()
+      );
+      
+      // If we see the country name AND any of its codes, it's definitely this country
+      for (const code of countryCodes) {
+        if (normalized.toUpperCase().includes(code)) {
+          return value;
+        }
+      }
+      
+      // If the key is long enough (more than 3 chars) and appears as a distinct word, use it
+      // This helps with countries like "Slovenia", "Netherlands", "Great Britain"
+      if (key.length > 3) {
+        // Check if it appears as a word boundary (not just part of another word)
+        const wordBoundaryPattern = new RegExp(`\\b${keyLower}\\b`, 'i');
+        if (wordBoundaryPattern.test(normalized)) {
+          return value;
+        }
+        // Also check if it's at the start of the string (even if followed by codes)
+        if (lowerNormalized.startsWith(keyLower)) {
           return value;
         }
       }
@@ -312,6 +370,24 @@ function parseMedalTable(html) {
   console.log('All country names found in tables:', allFoundCountries);
   console.log('Looking for Italy variations:', allFoundCountries.filter(c => 
     c.toLowerCase().includes('ital') || c === 'ITA' || c === 'Italy'
+  ));
+  console.log('Looking for Norway variations:', allFoundCountries.filter(c => 
+    c.toLowerCase().includes('norway') || c === 'NOR' || c === 'Norway' || c.includes('NOR')
+  ));
+  console.log('Looking for Slovenia variations:', allFoundCountries.filter(c => 
+    c.toLowerCase().includes('slovenia') || c === 'SLO' || c === 'SVN' || c === 'Slovenia' || c.includes('SLO') || c.includes('SVN')
+  ));
+  console.log('Looking for Finland variations:', allFoundCountries.filter(c => 
+    c.toLowerCase().includes('finland') || c === 'FIN' || c === 'Finland' || c.includes('FIN')
+  ));
+  console.log('Looking for Netherlands variations:', allFoundCountries.filter(c => 
+    c.toLowerCase().includes('netherlands') || c.toLowerCase().includes('holland') || c === 'NED' || c === 'NLD' || c === 'Netherlands' || c.includes('NED') || c.includes('NLD')
+  ));
+  console.log('Looking for Great Britain variations:', allFoundCountries.filter(c => 
+    c.toLowerCase().includes('britain') || c.toLowerCase().includes('united kingdom') || c === 'GBR' || c === 'GB' || c === 'UK' || c === 'Great Britain' || c.includes('GBR') || c.includes('GB')
+  ));
+  console.log('Looking for Austria variations:', allFoundCountries.filter(c => 
+    c.toLowerCase().includes('austria') || c === 'AUT' || c === 'Austria' || c.includes('AUT')
   ));
   
   console.log('Parsed medal data:', medalData);
