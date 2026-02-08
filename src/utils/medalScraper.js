@@ -45,6 +45,21 @@ const COUNTRY_MAPPING = {
   'CAN': 'Canada',
   'Sweden': 'Sweden',
   'SWE': 'Sweden',
+  // Additional country codes to prevent false matches
+  'Australia': 'Australia',
+  'AUS': 'Australia',
+  'India': 'India',
+  'IND': 'India',
+  'Nigeria': 'Nigeria',
+  'NGR': 'Nigeria',
+  'North Macedonia': 'North Macedonia',
+  'MKD': 'North Macedonia',
+  'Slovakia': 'Slovakia',
+  'SVK': 'Slovakia',
+  'Spain': 'Spain',
+  'ESP': 'Spain',
+  'Ukraine': 'Ukraine',
+  'UKR': 'Ukraine',
   // Add more mappings as needed
 };
 
@@ -140,24 +155,31 @@ function extractCountryName(countryText) {
         if (COUNTRY_MAPPING[potentialName] === codeMappedCountry) {
           return codeMappedCountry;
         }
-        // Try case-insensitive match
+        // Try case-insensitive match - but ONLY if the name matches the code's country
         for (const [key, value] of Object.entries(COUNTRY_MAPPING)) {
           if (key.toLowerCase() === potentialName.toLowerCase() && value === codeMappedCountry) {
             return value;
           }
         }
+        // If we found a code but the name doesn't match, return the code's country anyway
+        // (the code is authoritative)
+        return codeMappedCountry;
       }
       
-      // If code doesn't map, just try to match the name (for countries not in our mapping)
+      // If code doesn't map to a known country, try to match the name
+      // But be more careful - only match if it's an exact or close match
       if (COUNTRY_MAPPING[potentialName]) {
         return COUNTRY_MAPPING[potentialName];
       }
-      // Try case-insensitive
+      // Try case-insensitive - but prefer exact matches
       for (const [key, value] of Object.entries(COUNTRY_MAPPING)) {
         if (key.toLowerCase() === potentialName.toLowerCase()) {
           return value;
         }
       }
+      
+      // If no match found, return the potential name as-is (for countries not in our mapping)
+      return potentialName;
     }
   }
   
@@ -425,8 +447,21 @@ function parseMedalTable(html) {
       
       console.log(`Found row: "${countryText}" -> "${mappedCountry}": G${gold} S${silver} B${bronze} (Total: ${total})`);
       
-      // Save all countries found, even with 0 medals (helps with debugging)
-      medalData[mappedCountry] = { gold, silver, bronze };
+      // Only save/update if:
+      // 1. Country doesn't exist yet, OR
+      // 2. New total is greater than existing total (prevents zeros from overwriting valid data)
+      const existing = medalData[mappedCountry];
+      const existingTotal = existing ? (existing.gold + existing.silver + existing.bronze) : 0;
+      
+      if (!existing || total > existingTotal) {
+        medalData[mappedCountry] = { gold, silver, bronze };
+      } else if (total === existingTotal && existing) {
+        // If totals are equal, keep the existing data (might have been set from a better source)
+        // Only update if we don't have existing data
+        if (existingTotal === 0) {
+          medalData[mappedCountry] = { gold, silver, bronze };
+        }
+      }
     });
   });
   
