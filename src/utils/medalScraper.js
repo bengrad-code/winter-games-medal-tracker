@@ -132,7 +132,23 @@ function extractCountryName(countryText) {
     const codeIndex = normalized.lastIndexOf(code);
     if (codeIndex > 0) {
       const potentialName = normalized.substring(0, codeIndex).trim();
-      // Check if this matches a known country
+      
+      // First, check if the extracted code actually maps to a known country
+      const codeMappedCountry = COUNTRY_MAPPING[code];
+      if (codeMappedCountry) {
+        // Verify that the potential name matches the country that this code maps to
+        if (COUNTRY_MAPPING[potentialName] === codeMappedCountry) {
+          return codeMappedCountry;
+        }
+        // Try case-insensitive match
+        for (const [key, value] of Object.entries(COUNTRY_MAPPING)) {
+          if (key.toLowerCase() === potentialName.toLowerCase() && value === codeMappedCountry) {
+            return value;
+          }
+        }
+      }
+      
+      // If code doesn't map, just try to match the name (for countries not in our mapping)
       if (COUNTRY_MAPPING[potentialName]) {
         return COUNTRY_MAPPING[potentialName];
       }
@@ -147,34 +163,43 @@ function extractCountryName(countryText) {
   
   // Also check if the normalized string contains a country code anywhere (not just at the end)
   // This handles cases like "NorwayNORNOR" or "SloveniaSLOSVN" where the code might be in the middle
+  // BUT: Only match if the country name is at the START and the code appears right after it
   for (const [key, value] of Object.entries(COUNTRY_MAPPING)) {
-    // Check if the key appears in the normalized string (case-insensitive)
     const keyLower = key.toLowerCase();
-    if (lowerNormalized.includes(keyLower)) {
+    
+    // Only process if the country name appears at the START of the string
+    if (lowerNormalized.startsWith(keyLower)) {
       // Find all country codes that map to this country
       const countryCodes = Object.keys(COUNTRY_MAPPING).filter(k => 
         COUNTRY_MAPPING[k] === value && k.length === 3 && k === k.toUpperCase()
       );
       
-      // If we see the country name AND any of its codes, it's definitely this country
+      // Get the text after the country name
+      const afterName = normalized.substring(key.length);
+      
+      // If we see the country name at the start AND any of its codes appear right after, it's this country
       for (const code of countryCodes) {
-        if (normalized.toUpperCase().includes(code)) {
+        // Check if the code appears immediately after the country name (with optional whitespace)
+        if (afterName.toUpperCase().trim().startsWith(code)) {
           return value;
         }
       }
       
-      // If the key is long enough (more than 3 chars) and appears as a distinct word, use it
-      // This helps with countries like "Slovenia", "Netherlands", "Great Britain"
-      if (key.length > 3) {
-        // Check if it appears as a word boundary (not just part of another word)
-        const wordBoundaryPattern = new RegExp(`\\b${keyLower}\\b`, 'i');
-        if (wordBoundaryPattern.test(normalized)) {
-          return value;
-        }
-        // Also check if it's at the start of the string (even if followed by codes)
-        if (lowerNormalized.startsWith(keyLower)) {
-          return value;
-        }
+      // If the country name is at the start and what follows looks like country codes (3 uppercase letters), use it
+      // This handles formats like "NorwayNORNOR" where the code might be repeated
+      const afterNameUpper = afterName.toUpperCase().trim();
+      if (afterNameUpper.match(/^[A-Z]{3}/)) {
+        return value;
+      }
+    }
+    
+    // For longer country names (more than 3 chars), also check if it appears as a complete word at the start
+    // This helps with countries like "Slovenia", "Netherlands", "Great Britain"
+    if (key.length > 3 && lowerNormalized.startsWith(keyLower)) {
+      // Check if what follows is just codes/numbers (not more country name text)
+      const afterName = normalized.substring(key.length).trim();
+      if (afterName.length === 0 || afterName.match(/^[A-Z]{3}/) || afterName.match(/^\d/)) {
+        return value;
       }
     }
   }
@@ -218,12 +243,43 @@ function parseMedalTable(html) {
   
   // Also try to find JSON data embedded in script tags
   const scripts = doc.querySelectorAll('script');
-  scripts.forEach(script => {
+  let jsonDataFound = false;
+  scripts.forEach((script, scriptIndex) => {
     const text = script.textContent || script.innerHTML;
     // Look for JSON data that might contain medal information
-    if (text.includes('medal') || text.includes('country') || text.includes('gold')) {
+    if (text.includes('medal') || text.includes('country') || text.includes('gold') || text.includes('nation')) {
       try {
-        // Try to extract JSON objects
+        // Try to find JSON arrays of objects (common format for medal data)
+        const arrayPattern = /\[[\s\S]*?\{[\s\S]*?"(?:country|nation|name)"[\s\S]*?\}[\s\S]*?\]/g;
+        const arrayMatches = text.match(arrayPattern);
+        if (arrayMatches) {
+          arrayMatches.forEach(match => {
+            try {
+              const array = JSON.parse(match);
+              if (Array.isArray(array)) {
+                array.forEach(data => {
+                  if (data && (data.country || data.nation || data.name)) {
+                    const country = data.country || data.nation || data.name;
+                    const mappedCountry = mapCountryName(country);
+                    if (mappedCountry) {
+                      medalData[mappedCountry] = {
+                        gold: parseInt(data.gold || data.g || 0) || 0,
+                        silver: parseInt(data.silver || data.s || 0) || 0,
+                        bronze: parseInt(data.bronze || data.b || 0) || 0,
+                      };
+                      jsonDataFound = true;
+                      console.log(`Found JSON data for ${country} -> ${mappedCountry}: G${medalData[mappedCountry].gold} S${medalData[mappedCountry].silver} B${medalData[mappedCountry].bronze}`);
+                    }
+                  }
+                });
+              }
+            } catch (e) {
+              // Not valid JSON array, continue
+            }
+          });
+        }
+        
+        // Also try to extract individual JSON objects
         const jsonMatches = text.match(/\{[\s\S]*?"(?:country|nation|name)"[\s\S]*?\}/g);
         if (jsonMatches) {
           jsonMatches.forEach(match => {
@@ -231,12 +287,16 @@ function parseMedalTable(html) {
               const data = JSON.parse(match);
               if (data.country || data.nation || data.name) {
                 const country = data.country || data.nation || data.name;
-                const mappedCountry = COUNTRY_MAPPING[country] || country;
-                medalData[mappedCountry] = {
-                  gold: parseInt(data.gold || data.g || 0) || 0,
-                  silver: parseInt(data.silver || data.s || 0) || 0,
-                  bronze: parseInt(data.bronze || data.b || 0) || 0,
-                };
+                const mappedCountry = mapCountryName(country);
+                if (mappedCountry) {
+                  medalData[mappedCountry] = {
+                    gold: parseInt(data.gold || data.g || 0) || 0,
+                    silver: parseInt(data.silver || data.s || 0) || 0,
+                    bronze: parseInt(data.bronze || data.b || 0) || 0,
+                  };
+                  jsonDataFound = true;
+                  console.log(`Found JSON object for ${country} -> ${mappedCountry}: G${medalData[mappedCountry].gold} S${medalData[mappedCountry].silver} B${medalData[mappedCountry].bronze}`);
+                }
               }
             } catch (e) {
               // Not valid JSON, continue
@@ -248,6 +308,10 @@ function parseMedalTable(html) {
       }
     }
   });
+  
+  if (jsonDataFound) {
+    console.log('Found medal data in JSON/script tags');
+  }
   
   // Parse tables
   const allFoundCountries = []; // Track all countries found for debugging
